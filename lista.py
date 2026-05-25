@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import mysql.connector
 from fastapi.middleware.cors import CORSMiddleware
+import mysql.connector
+import os
 
 app = FastAPI()
 
-# ===== CORS (permite conectar no HTML) =====
+# ===== CORS =====
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,36 +15,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ===== CONEXÃO MYSQL =====
-conexao = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="",        # coloca sua senha do MySQL se tiver
-    database="lista"    # seu banco (você disse que é "lista")
-)
-
-cursor = conexao.cursor(dictionary=True)
+# ===== CONEXÃO (SEGURA) =====
+def conectar():
+    return mysql.connector.connect(
+        host=os.getenv("DB_HOST"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        database=os.getenv("DB_NAME"),
+        port=int(os.getenv("DB_PORT", 3306))
+    )
 
 # ===== MODELO =====
 class Pessoa(BaseModel):
     nome: str
     mensagem: str
 
-# ===== SALVAR PRESENÇA =====
+# ===== INSERIR =====
 @app.post("/confirmar")
 def confirmar(pessoa: Pessoa):
-    sql = "INSERT INTO lista (nome, mensagem) VALUES (%s, %s)"
-    valores = (pessoa.nome, pessoa.mensagem)
+    conexao = conectar()
+    cursor = conexao.cursor()
 
-    cursor.execute(sql, valores)
+    sql = "INSERT INTO lista (nome, mensagem) VALUES (%s, %s)"
+    cursor.execute(sql, (pessoa.nome, pessoa.mensagem))
+
     conexao.commit()
+    cursor.close()
+    conexao.close()
 
     return {"status": "ok"}
 
-# ===== LISTAR MENSAGENS =====
+# ===== LISTAR =====
 @app.get("/mensagens")
 def mensagens():
-    cursor.execute("SELECT nome, mensagem FROM lista ORDER BY id DESC")
-    resultado = cursor.fetchall()
+    conexao = conectar()
+    cursor = conexao.cursor(dictionary=True)
 
-    return resultado
+    cursor.execute("SELECT id, nome, mensagem FROM lista ORDER BY id DESC")
+    dados = cursor.fetchall()
+
+    cursor.close()
+    conexao.close()
+
+    return dados
